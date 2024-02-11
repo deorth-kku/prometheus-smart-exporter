@@ -21,7 +21,7 @@ func NewCollector() *collector {
 	for _, disk := range dir {
 		var dev smart.Device
 		var err error
-		for _, prefix := range []string{"loop", "zram", "zd"} {
+		for _, prefix := range []string{"loop", "zram", "zd", "sr"} {
 			if strings.HasPrefix(disk.Name(), prefix) {
 				goto SkipDev
 			}

@@ -42,3 +42,8 @@ func TestSata(t *testing.T) {
 		fmt.Println(a)
 	}
 }
+
+func TestHttp(t *testing.T) {
+	server := NewHttpServer()
+	server.ListenAndServe("/tmp/123.sock,0666")
+}
