@@ -15,16 +15,35 @@ import (
 
 const metric_sata = metric_head + "sata_"
 
-var sata_metrics = make(map[string]*prometheus.Desc)
-
 type SataDev struct {
-	name      string
-	dev       *smart.SataDevice
-	info_sent bool
+	name     string
+	dev      *smart.SataDevice
+	dev_info []string
 }
 
-func NewSataDev(name string, smartdev *smart.SataDevice) *SataDev {
-	return &SataDev{name, smartdev, false}
+func NewSataDev(name string, smartdev *smart.SataDevice) (d *SataDev) {
+	d = &SataDev{name, smartdev, nil}
+	id, err := d.dev.Identify()
+	if err == nil {
+		sectors, capacity, logicalSectorSize, physicalSectorSize, _ := id.Capacity()
+		wwn := strconv.FormatUint(id.WWN(), 16)
+		wwn = wwn[:8] + " " + wwn[8:]
+		d.dev_info = []string{
+			name,
+			id.ModelNumber(),
+			id.SerialNumber(),
+			wwn,
+			id.FirmwareRevision(),
+			fmt.Sprintf("%s bytes [%s]", humanize.Comma(int64(capacity)), humanize.Bytes(capacity)),
+			fmt.Sprintf("%d bytes logical, %d bytes physical", logicalSectorSize, physicalSectorSize),
+			humanize.Comma(int64(sectors)),
+			fmt.Sprintf("%d rpm", id.RotationRate),
+			ParseSATAVersion(id),
+		}
+	} else {
+		d.dev_info = make([]string, len(tags_sata_info))
+	}
+	return
 }
 
 func (d *SataDev) Name() string {
@@ -48,19 +67,24 @@ func toHex(num uint8) string {
 
 const sata_info_metric = metric_sata + "Info"
 
-var tags_sata_info = []string{
-	tag_dev,
-	"Device_Model",
-	"Serial_Number",
-	"LU_WWN_Device_Id",
-	"Firmware_Version",
-	"User_Capacity",
-	"Sector_Sizes",
-	"Sectors",
-	"Rotation_Rate",
-	// I do not know how smartctl read "Form Factor"
-	"SATA_Version",
-}
+var (
+	tags_sata_info = []string{
+		tag_dev,
+		"Device_Model",
+		"Serial_Number",
+		"LU_WWN_Device_Id",
+		"Firmware_Version",
+		"User_Capacity",
+		"Sector_Sizes",
+		"Sectors",
+		"Rotation_Rate",
+		// I do not know how smartctl read "Form Factor"
+		"SATA_Version",
+	}
+	sata_metrics = map[string]*prometheus.Desc{
+		sata_info_metric: prometheus.NewDesc(sata_info_metric, "", tags_sata_info, nil),
+	}
+)
 
 func (d *SataDev) ListMetrics() map[string]*prometheus.Desc {
 	data, err := d.dev.ReadSMARTData()
@@ -76,7 +100,6 @@ func (d *SataDev) ListMetrics() map[string]*prometheus.Desc {
 		}
 		sata_metrics[name] = prometheus.NewDesc(name, toHex(num), tags_dev_only, nil)
 	}
-	sata_metrics[sata_info_metric] = prometheus.NewDesc(sata_info_metric, "", tags_sata_info, nil)
 	return sata_metrics
 }
 
@@ -119,27 +142,11 @@ func (d *SataDev) GetMetrics() (out []PromValue) {
 	}
 
 	template.Desc, ok = sata_metrics[sata_info_metric]
-	if ok && !d.info_sent {
-		d.info_sent = true
-		id, err := d.dev.Identify()
-		if err == nil {
-			sectors, capacity, logicalSectorSize, physicalSectorSize, _ := id.Capacity()
-			template.Tags = []string{
-				d.name,
-				id.ModelNumber(),
-				id.SerialNumber(),
-				strconv.FormatUint(id.WWN(), 16),
-				id.FirmwareRevision(),
-				fmt.Sprintf("%s bytes [%s]", humanize.Comma(int64(capacity)), humanize.Bytes(capacity)),
-				fmt.Sprintf("%d bytes logical, %d bytes physical", logicalSectorSize, physicalSectorSize),
-				humanize.Comma(int64(sectors)),
-				fmt.Sprintf("%d rpm", id.RotationRate),
-				ParseSATAVersion(id),
-			}
-			template.Type = prometheus.GaugeValue
-			template.Value = 0
-			out = append(out, template)
-		}
+	if ok {
+		template.Tags = d.dev_info
+		template.Type = prometheus.GaugeValue
+		template.Value = 0
+		out = append(out, template)
 	}
 	return
 }
