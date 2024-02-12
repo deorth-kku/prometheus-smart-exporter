@@ -86,7 +86,8 @@ func (d *SataDev) GetMetrics() (out []PromValue) {
 				continue
 			}
 			template.Value = float64(temp)
-		case 03: // Spin_Up_Time, don't know how to parse this. not parsed for now
+		case 03:
+			attr.ValueRaw, _ = ParseSpinUpTime(attr.ValueRaw)
 			fallthrough
 		default:
 			template.Value = float64(attr.ValueRaw)
@@ -98,4 +99,10 @@ func (d *SataDev) GetMetrics() (out []PromValue) {
 
 func (d *SataDev) Close() error {
 	return d.dev.Close()
+}
+
+func ParseSpinUpTime(raw uint64) (current uint64, average uint64) {
+	current = raw & 0xFFF
+	average = (raw & 0xFFF0000) >> 16
+	return
 }

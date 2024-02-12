@@ -47,3 +47,13 @@ func TestHttp(t *testing.T) {
 	server := NewHttpServer()
 	server.ListenAndServe("/tmp/123.sock,0666")
 }
+
+func TestParseSpinUpTime(t *testing.T) {
+	// See https://github.com/netdata/netdata/issues/5919#issuecomment-487087591
+	cur, avg := ParseSpinUpTime(38684000679)
+	if cur == 423 && avg == 447 {
+
+	} else {
+		t.Errorf("incorrect value %d %d", cur, avg)
+	}
+}
