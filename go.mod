@@ -2,7 +2,10 @@ module github.com/deorth-kku/prometheus-smart-exporter
 
 go 1.22.0
 
-require github.com/anatol/smart.go v0.0.0-20230705044831-c3b27137baa3
+require (
+	github.com/anatol/smart.go v0.0.0-20230705044831-c3b27137baa3
+	github.com/dustin/go-humanize v1.0.1
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
