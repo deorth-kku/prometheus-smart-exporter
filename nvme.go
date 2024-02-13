@@ -13,9 +13,10 @@ import (
 )
 
 type NvmeDev struct {
-	name string
-	dev  *smart.NVMeDevice
-	info []string
+	name    string
+	dev     *smart.NVMeDevice
+	info    []string
+	ns_info [][]string
 }
 
 const (
@@ -43,13 +44,13 @@ const (
 	nvmeThermalTransitionCount = metric_nvme + "ThermalTransitionCount"
 	nvmeThermalManagementTime  = metric_nvme + "ThermalManagementTime"
 	nvmeInfo                   = metric_nvme + "Info"
+	nvmeNamespaceInfo          = metric_nvme + "NamespaceInfo"
 	tag_dev                    = "dev"
 )
 
 var (
 	tags_dev_only  = []string{tag_dev}
 	tags_dev_index = []string{tag_dev, "index"}
-	nvme_metrics   = list_nvme_metrics()
 	tags_nvme_info = []string{
 		tag_dev,
 		"Model_Number",
@@ -63,6 +64,14 @@ var (
 		"NVMe_Version",
 		"Number_of_Namespaces",
 	}
+	tags_nvme_namespace_info = []string{
+		tag_dev,
+		"namespace",
+		"Size_Capacity",
+		"Formatted_LBA_Size",
+		"IEEE_EUI_64",
+	}
+	nvme_metrics = list_nvme_metrics()
 )
 
 func list_nvme_metrics() (out map[string]*prometheus.Desc) {
@@ -101,12 +110,13 @@ func list_nvme_metrics() (out map[string]*prometheus.Desc) {
 	}
 
 	out[nvmeInfo] = prometheus.NewDesc(nvmeInfo, "", tags_nvme_info, nil)
+	out[nvmeNamespaceInfo] = prometheus.NewDesc(nvmeNamespaceInfo, "", tags_nvme_namespace_info, nil)
 	return
 }
 
 func NewNvmeDev(name string, smartdev *smart.NVMeDevice) (d *NvmeDev) {
-	d = &NvmeDev{name, smartdev, nil}
-	id, ns, err := d.dev.Identify()
+	d = &NvmeDev{name, smartdev, nil, nil}
+	id, nss, err := d.dev.Identify()
 	if err == nil {
 		d.info = []string{
 			name,
@@ -119,7 +129,16 @@ func NewNvmeDev(name string, smartdev *smart.NVMeDevice) (d *NvmeDev) {
 			bigCapString(bigFromInt128(id.Unvmcap)), // Unallocated_NVM_Capacity
 			makeUint16ID(id.Cntlid),                 // Controller_ID
 			makeNvmeVer(id.Ver),                     // NVMe_Version
-			strconv.Itoa(len(ns)),                   // Number_of_Namespaces
+			strconv.Itoa(len(nss)),                  // Number_of_Namespaces
+		}
+		for i, ns := range nss {
+			d.ns_info = append(d.ns_info, []string{
+				name,
+				strconv.Itoa(i),
+				bigCapString(new(big.Int).Mul(new(big.Int).SetUint64(ns.Nsze), new(big.Int).SetUint64(ns.LbaSize()))), // Size_Capacity
+				strconv.FormatUint(ns.LbaSize(), 10),                                      // Formatted_LBA_Size
+				hex.EncodeToString(ns.Eui64[:4]) + " " + hex.EncodeToString(ns.Eui64[4:]), // IEEE_EUI_64
+			})
 		}
 	} else {
 		d.info = make([]string, len(tags_nvme_info))
@@ -149,7 +168,7 @@ func (d *NvmeDev) GetMetrics() (out []PromValue) {
 		Type: prometheus.GaugeValue,
 		Tags: []string{d.name},
 	}
-	out = make([]PromValue, 31)
+	out = make([]PromValue, 31+len(d.ns_info))
 
 	uint8_metrics := map[string]uint8{
 		nvmeCritWarning:          info.CritWarning,
@@ -235,6 +254,14 @@ func (d *NvmeDev) GetMetrics() (out []PromValue) {
 	template.Type = prometheus.GaugeValue
 	template.Tags = d.info
 	out[i] = template
+	i++
+
+	template.Desc = nvme_metrics[nvmeNamespaceInfo]
+	for _, ns := range d.ns_info {
+		template.Tags = ns
+		out[i] = template
+		i++
+	}
 	return
 }
 
