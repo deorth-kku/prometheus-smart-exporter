@@ -1,19 +1,25 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"math/big"
 	"strconv"
 
 	"github.com/anatol/smart.go"
+	"github.com/dustin/go-humanize"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 type NvmeDev struct {
-	name     string
-	smartdev *smart.NVMeDevice
+	name string
+	dev  *smart.NVMeDevice
+	info []string
 }
 
 const (
-	metric_head                = "smart_exporter_"
+	metric_head                = "smart_"
 	metric_nvme                = metric_head + "nvme_"
 	nvmeCritWarning            = metric_nvme + "CritWarning"
 	nvmeTemperature            = metric_nvme + "Temperature"
@@ -36,6 +42,7 @@ const (
 	nvmeTempSensor             = metric_nvme + "TempSensor"
 	nvmeThermalTransitionCount = metric_nvme + "ThermalTransitionCount"
 	nvmeThermalManagementTime  = metric_nvme + "ThermalManagementTime"
+	nvmeInfo                   = metric_nvme + "Info"
 	tag_dev                    = "dev"
 )
 
@@ -43,6 +50,19 @@ var (
 	tags_dev_only  = []string{tag_dev}
 	tags_dev_index = []string{tag_dev, "index"}
 	nvme_metrics   = list_nvme_metrics()
+	tags_nvme_info = []string{
+		tag_dev,
+		"Model_Number",
+		"Serial_Number",
+		"Firmware_Version",
+		"PCI_Vendor_Subsystem_ID",
+		"IEEE_OUI_Identifier",
+		"Total_NVM_Capacity",
+		"Unallocated_NVM_Capacity",
+		"Controller_ID",
+		"NVMe_Version",
+		"Number_of_Namespaces",
+	}
 )
 
 func list_nvme_metrics() (out map[string]*prometheus.Desc) {
@@ -79,11 +99,33 @@ func list_nvme_metrics() (out map[string]*prometheus.Desc) {
 	for _, metric_name := range metrics_with_index {
 		out[metric_name] = prometheus.NewDesc(metric_name, "", tags_dev_index, nil)
 	}
+
+	out[nvmeInfo] = prometheus.NewDesc(nvmeInfo, "", tags_nvme_info, nil)
 	return
 }
 
-func NewNvmeDev(name string, smartdev *smart.NVMeDevice) *NvmeDev {
-	return &NvmeDev{name, smartdev}
+func NewNvmeDev(name string, smartdev *smart.NVMeDevice) (d *NvmeDev) {
+	d = &NvmeDev{name, smartdev, nil}
+	id, ns, err := d.dev.Identify()
+	if err == nil {
+		d.info = []string{
+			name,
+			id.ModelNumber(),                        // Model_Number
+			id.SerialNumber(),                       // Serial_Number
+			id.FirmwareRev(),                        // Firmware_Version
+			makeUint16ID(id.VendorID),               // PCI_Vendor_Subsystem_ID
+			"0x" + hex.EncodeToString(id.IEEE[:]),   // IEEE_OUI_Identifier
+			bigCapString(bigFromInt128(id.Tnvmcap)), // Total_NVM_Capacity
+			bigCapString(bigFromInt128(id.Unvmcap)), // Unallocated_NVM_Capacity
+			makeUint16ID(id.Cntlid),                 // Controller_ID
+			makeNvmeVer(id.Ver),                     // NVMe_Version
+			strconv.Itoa(len(ns)),                   // Number_of_Namespaces
+		}
+	} else {
+		d.info = make([]string, len(tags_nvme_info))
+		d.info[0] = name
+	}
+	return
 }
 
 func (d *NvmeDev) Name() string {
@@ -91,7 +133,7 @@ func (d *NvmeDev) Name() string {
 }
 
 func (d *NvmeDev) Close() error {
-	return d.smartdev.Close()
+	return d.dev.Close()
 }
 
 func (*NvmeDev) ListMetrics() map[string]*prometheus.Desc {
@@ -99,7 +141,7 @@ func (*NvmeDev) ListMetrics() map[string]*prometheus.Desc {
 }
 
 func (d *NvmeDev) GetMetrics() (out []PromValue) {
-	info, err := d.smartdev.ReadSMART()
+	info, err := d.dev.ReadSMART()
 	if err != nil {
 		return
 	}
@@ -107,7 +149,7 @@ func (d *NvmeDev) GetMetrics() (out []PromValue) {
 		Type: prometheus.GaugeValue,
 		Tags: []string{d.name},
 	}
-	out = make([]PromValue, 30)
+	out = make([]PromValue, 31)
 
 	uint8_metrics := map[string]uint8{
 		nvmeCritWarning:          info.CritWarning,
@@ -188,5 +230,31 @@ func (d *NvmeDev) GetMetrics() (out []PromValue) {
 		}
 	}
 
+	template.Desc = nvme_metrics[nvmeInfo]
+	template.Value = 0
+	template.Type = prometheus.GaugeValue
+	template.Tags = d.info
+	out[i] = template
 	return
+}
+
+func makeUint16ID(in uint16) string {
+	b := make([]byte, 2)
+	binary.BigEndian.PutUint16(b, in)
+	return "0x" + hex.EncodeToString(b)
+}
+
+func bigCapString(cap *big.Int) string {
+	cap2 := new(big.Int)
+	cap2 = cap2.Add(cap, cap2)
+	return fmt.Sprintf("%s bytes [%s]", humanize.BigComma(cap), humanize.BigBytes(cap2))
+}
+
+func makeNvmeVer(ver uint32) string {
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, ver)
+	if b[3] != 0 {
+		return "?.?"
+	}
+	return fmt.Sprintf("%d.%d", b[1], b[2])
 }

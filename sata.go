@@ -42,6 +42,7 @@ func NewSataDev(name string, smartdev *smart.SataDevice) (d *SataDev) {
 		}
 	} else {
 		d.dev_info = make([]string, len(tags_sata_info))
+		d.dev_info[0] = name
 	}
 	return
 }
