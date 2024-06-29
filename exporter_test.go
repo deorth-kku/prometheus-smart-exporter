@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -23,6 +24,7 @@ func TestNvme(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	defer dev.Close()
 	d := NewNvmeDev(path, dev)
 	for _, a := range d.GetMetrics() {
 		fmt.Println(a)
@@ -36,11 +38,24 @@ func TestSata(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	defer dev.Close()
 	d := NewSataDev(path, dev)
 	d.ListMetrics()
 	for _, a := range d.GetMetrics() {
 		fmt.Println(a)
 	}
+}
+
+func TestScsi(t *testing.T) {
+	path := "/dev/sde"
+	dev, err := smart.OpenScsi(path)
+	if err != nil {
+		t.Error(err)
+	}
+	defer dev.Close()
+	ij, _ := dev.Inquiry()
+	j, _ := json.Marshal(ij)
+	fmt.Println(string(j))
 }
 
 func TestHttp(t *testing.T) {

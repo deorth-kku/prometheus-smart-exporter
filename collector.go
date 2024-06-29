@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anatol/smart.go"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -15,30 +14,26 @@ type collector struct {
 	metrics_names []string
 }
 
+var blacklist_devs = []string{"loop", "zram", "zd", "sr"}
+
 func NewCollector() *collector {
 	c := collector{}
 	dir, _ := os.ReadDir("/sys/block/")
 	for _, disk := range dir {
-		var dev smart.Device
+		var pdev PromDev
 		var err error
-		for _, prefix := range []string{"loop", "zram", "zd", "sr"} {
+		for _, prefix := range blacklist_devs {
 			if strings.HasPrefix(disk.Name(), prefix) {
 				goto SkipDev
 			}
 		}
-		dev, err = smart.Open("/dev/" + disk.Name())
+		pdev, err = NewPromDev(disk.Name())
 		if err != nil {
 			// some devices (like dmcrypt) do not support SMART interface
 			slog.Warn("failed to open smart", "dev", disk.Name(), "err", err)
 			continue
 		}
-		switch sm := dev.(type) {
-		case *smart.SataDevice:
-			c.devs = append(c.devs, NewSataDev(disk.Name(), sm))
-		case *smart.ScsiDevice:
-		case *smart.NVMeDevice:
-			c.devs = append(c.devs, NewNvmeDev(disk.Name(), sm))
-		}
+		c.devs = append(c.devs, pdev)
 	SkipDev:
 	}
 	return &c

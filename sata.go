@@ -52,13 +52,12 @@ func (d *SataDev) Name() string {
 }
 
 func getMetricName(attrName string, num uint8) (metricName string) {
-	switch attrName {
-	case "":
+	if len(attrName) == 0 {
 		return metric_sata + "Unknown_Attribute_" + toHex(num)
-	case "Power-Off_Retract_Count":
-		return metric_sata + "Power_Off_Retract_Count"
-	default:
-		return metric_sata + attrName
+	} else if strings.Contains(attrName, "Unknown") {
+		return metric_sata + strings.Replace(attrName, "-", "_", -1) + "_" + toHex(num)
+	} else {
+		return metric_sata + strings.Replace(attrName, "-", "_", -1)
 	}
 }
 
