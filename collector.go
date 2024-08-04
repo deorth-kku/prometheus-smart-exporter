@@ -16,7 +16,7 @@ type collector struct {
 
 var blacklist_devs = []string{"loop", "zram", "zd", "sr"}
 
-func NewCollector() *collector {
+func NewCollector(skip ...string) *collector {
 	c := collector{}
 	dir, _ := os.ReadDir("/sys/block/")
 	for _, disk := range dir {
@@ -24,6 +24,9 @@ func NewCollector() *collector {
 		var err error
 		for _, prefix := range blacklist_devs {
 			if strings.HasPrefix(disk.Name(), prefix) {
+				goto SkipDev
+			}
+			if slices.Contains(skip, disk.Name()) {
 				goto SkipDev
 			}
 		}
